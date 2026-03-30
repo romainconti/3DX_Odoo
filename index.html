@@ -1,43 +1,46 @@
-<html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:widget="http://www.netvibes.com/ns/">
 <head>
 <title>Hello Widget</title>
 <meta name="apiVersion" content="1.0" />
 <meta name="description" content="Minimal Hello Widget" />
+<script type="text/javascript">
+(function () {
+    var content = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello!</div>';
+
+    function inject() {
+        /* Method A: UWA widget.body.innerHTML */
+        if (typeof widget !== 'undefined' && widget.body) {
+            try { widget.body.innerHTML = content; return; } catch(e) {}
+        }
+        /* Method B: find the widget body container in DOM */
+        var bodies = document.querySelectorAll('.widgetBody, .moduleContent, [id*="widget_body"]');
+        if (bodies.length > 0) {
+            bodies[0].innerHTML = content;
+            return;
+        }
+        /* Method C: raw document.body */
+        if (document.body) {
+            document.body.innerHTML = content;
+            return;
+        }
+    }
+
+    /* Strategy 1: UWA onLoad event (if framework works) */
+    if (typeof widget !== 'undefined' && widget.addEvent) {
+        widget.addEvent('onLoad', inject);
+    }
+
+    /* Strategy 2: Timer-based retry (if UWA fails) */
+    var attempts = 0;
+    var timer = setInterval(function () {
+        attempts++;
+        inject();
+        if (attempts > 50) clearInterval(timer);
+    }, 200);
+})();
+</script>
 </head>
 <body>
-<p id="static" style="font-size:24px;color:red;padding:20px;">Hello (static)</p>
-<script>
-/* Try every known UWA method to inject content */
-var msg = '<p style="font-size:24px;padding:20px;">Hello World</p>';
-var done = false;
-
-function trySet() {
-    if (done) return;
-
-    /* 1 — widget.setBody (documented UWA method) */
-    try { widget.setBody(msg); done = true; return; } catch(e){}
-
-    /* 2 — widget.body.setContent (UWA Element method) */
-    try { widget.body.setContent(msg); done = true; return; } catch(e){}
-
-    /* 3 — widget.body.setHTML */
-    try { widget.body.setHTML(msg); done = true; return; } catch(e){}
-
-    /* 4 — widget.body.innerHTML (raw DOM) */
-    try { widget.body.innerHTML = msg; done = true; return; } catch(e){}
-
-    /* 5 — widget.body.addContent */
-    try { widget.body.addContent(msg); done = true; return; } catch(e){}
-
-    /* 6 — direct document.body */
-    try { document.body.innerHTML = msg; done = true; return; } catch(e){}
-}
-
-if (typeof widget !== 'undefined' && widget.addEvent) {
-    widget.addEvent('onLoad', trySet);
-} else {
-    trySet();
-}
-</script>
+<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello!</div>
 </body>
 </html>
