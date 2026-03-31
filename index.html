@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v11',
+                version: 'v12',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -122,54 +122,52 @@
                     };
                     if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
 
-                    /* Try multiple endpoints sequentially */
-                    var endpoints = [
-                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=state%3DRELEASED&$top=50',
-                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=50'
-                    ];
                     MyWidget.searchHeaders = headers;
                     MyWidget.spaceUrl = spaceUrl;
                     MyWidget.WAFData = WAFData;
-                    MyWidget.tryNextEndpoint(endpoints, 0);
+                    MyWidget.allItems = [];
+
+                    /* Search multiple type endpoints in parallel, collect all results */
+                    var typeEndpoints = [
+                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=100',
+                        '/resources/v1/modeler/dseng/dseng:Drawing/search?$searchStr=*&$top=100',
+                        '/resources/v1/modeler/dsxcad/dsxcad:Representation/search?$searchStr=*&$top=100'
+                    ];
+                    MyWidget.pendingSearches = typeEndpoints.length;
+                    MyWidget.log('Searching ' + typeEndpoints.length + ' type endpoints...');
+
+                    for (var i = 0; i < typeEndpoints.length; i++) {
+                        MyWidget.searchType(typeEndpoints[i], i);
+                    }
                 },
 
-                tryNextEndpoint: function (endpoints, idx) {
-                    if (idx >= endpoints.length) {
-                        MyWidget.log('All endpoints failed');
-                        document.getElementById('results').innerHTML = '<p style="color:#e74c3c;">Could not reach search API.</p>';
-                        return;
-                    }
-                    var url = MyWidget.spaceUrl + endpoints[idx];
-                    MyWidget.log('Try #' + (idx + 1) + ': ' + endpoints[idx]);
-
+                searchType: function (endpoint, idx) {
+                    var url = MyWidget.spaceUrl + endpoint;
                     MyWidget.WAFData.authenticatedRequest(url, {
                         method: 'GET',
                         type: 'json',
                         headers: MyWidget.searchHeaders,
                         onComplete: function (data) {
                             var items = data.member || [];
-                            /* If first endpoint returned results, filter for RELEASED only */
-                            if (idx === 0 && items.length > 0) {
-                                MyWidget.displayResults(items);
-                            } else if (idx === 1) {
-                                /* Fallback: wildcard search, filter client-side */
-                                var released = [];
-                                for (var i = 0; i < items.length; i++) {
-                                    if (items[i].state === 'RELEASED') released.push(items[i]);
+                            MyWidget.log('Endpoint #' + (idx + 1) + ': ' + items.length + ' items');
+                            for (var i = 0; i < items.length; i++) {
+                                if (items[i].state === 'RELEASED') {
+                                    MyWidget.allItems.push(items[i]);
                                 }
-                                if (released.length > 0) {
-                                    MyWidget.displayResults(released);
-                                } else {
-                                    MyWidget.log('No RELEASED items in ' + items.length + ' results');
-                                    document.getElementById('results').innerHTML = '<p style="color:#888;">No released items found.</p>';
-                                }
-                            } else {
-                                MyWidget.tryNextEndpoint(endpoints, idx + 1);
+                            }
+                            MyWidget.pendingSearches--;
+                            if (MyWidget.pendingSearches <= 0) {
+                                MyWidget.log('Total released: ' + MyWidget.allItems.length);
+                                MyWidget.displayResults(MyWidget.allItems);
                             }
                         },
-                        onFailure: function (err) {
-                            MyWidget.log('Failed #' + (idx + 1));
-                            MyWidget.tryNextEndpoint(endpoints, idx + 1);
+                        onFailure: function () {
+                            MyWidget.log('Endpoint #' + (idx + 1) + ' failed');
+                            MyWidget.pendingSearches--;
+                            if (MyWidget.pendingSearches <= 0) {
+                                MyWidget.log('Total released: ' + MyWidget.allItems.length);
+                                MyWidget.displayResults(MyWidget.allItems);
+                            }
                         }
                     });
                 },
@@ -183,12 +181,18 @@
                         return;
                     }
 
+                    /* Sort by name */
+                    items.sort(function (a, b) {
+                        return (a.name || '').localeCompare(b.name || '');
+                    });
+
                     MyWidget.log(items.length + ' released items');
 
                     var html = '<table style="width:100%;border-collapse:collapse;">' +
                         '<tr style="background:#f0f4f8;text-align:left;">' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Name</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Title</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Type</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Revision</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Owner</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Modified</th>' +
@@ -200,6 +204,7 @@
                         html += '<tr style="background:' + bg + ';border-bottom:1px solid #eee;">' +
                             '<td style="padding:8px 12px;">' + (item.name || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.title || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.type || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.revision || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.owner || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.modified || '—') + '</td>' +
