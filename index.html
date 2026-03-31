@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v10',
+                version: 'v11',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -124,76 +124,89 @@
 
                     /* Try multiple endpoints sequentially */
                     var endpoints = [
-                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=10',
-                        '/search/resources/v1/search?query=*&nresults=10',
-                        '/resources/v1/application/search?query=*&nresults=10',
-                        '/resources/v1/modeler/dslc/search?$searchStr=*&$top=10'
+                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=state%3DRELEASED&$top=50',
+                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=50'
                     ];
-                    MyWidget.log('Trying ' + endpoints.length + ' endpoints...');
-                    MyWidget.tryNextEndpoint(WAFData, spaceUrl, csrf, headers, endpoints, 0);
+                    MyWidget.searchHeaders = headers;
+                    MyWidget.spaceUrl = spaceUrl;
+                    MyWidget.WAFData = WAFData;
+                    MyWidget.tryNextEndpoint(endpoints, 0);
                 },
 
-                tryNextEndpoint: function (WAFData, spaceUrl, csrf, headers, endpoints, idx) {
+                tryNextEndpoint: function (endpoints, idx) {
                     if (idx >= endpoints.length) {
                         MyWidget.log('All endpoints failed');
                         document.getElementById('results').innerHTML = '<p style="color:#e74c3c;">Could not reach search API.</p>';
                         return;
                     }
-                    var url = spaceUrl + endpoints[idx];
+                    var url = MyWidget.spaceUrl + endpoints[idx];
                     MyWidget.log('Try #' + (idx + 1) + ': ' + endpoints[idx]);
 
-                    WAFData.authenticatedRequest(url, {
+                    MyWidget.WAFData.authenticatedRequest(url, {
                         method: 'GET',
                         type: 'json',
-                        headers: headers,
+                        headers: MyWidget.searchHeaders,
                         onComplete: function (data) {
-                            MyWidget.log('SUCCESS on #' + (idx + 1) + ': ' + Object.keys(data).join(', '));
-                            MyWidget.log('Data (500): ' + JSON.stringify(data).substring(0, 500));
-                            MyWidget.displayResults(data);
+                            var items = data.member || [];
+                            /* If first endpoint returned results, filter for RELEASED only */
+                            if (idx === 0 && items.length > 0) {
+                                MyWidget.displayResults(items);
+                            } else if (idx === 1) {
+                                /* Fallback: wildcard search, filter client-side */
+                                var released = [];
+                                for (var i = 0; i < items.length; i++) {
+                                    if (items[i].state === 'RELEASED') released.push(items[i]);
+                                }
+                                if (released.length > 0) {
+                                    MyWidget.displayResults(released);
+                                } else {
+                                    MyWidget.log('No RELEASED items in ' + items.length + ' results');
+                                    document.getElementById('results').innerHTML = '<p style="color:#888;">No released items found.</p>';
+                                }
+                            } else {
+                                MyWidget.tryNextEndpoint(endpoints, idx + 1);
+                            }
                         },
                         onFailure: function (err) {
-                            MyWidget.log('Failed #' + (idx + 1) + ': ' + JSON.stringify(err).substring(0, 100));
-                            MyWidget.tryNextEndpoint(WAFData, spaceUrl, csrf, headers, endpoints, idx + 1);
+                            MyWidget.log('Failed #' + (idx + 1));
+                            MyWidget.tryNextEndpoint(endpoints, idx + 1);
                         }
                     });
                 },
 
-                displayResults: function (data) {
+                displayResults: function (items) {
                     var el = document.getElementById('results');
                     if (!el) return;
 
-                    var items = data.member || data.results || data.data || [];
-                    if (!items.length && data.member === undefined) {
-                        items = Array.isArray(data) ? data : [];
-                    }
-
                     if (items.length === 0) {
                         el.innerHTML = '<p style="color:#888;">No released items found.</p>';
-                        MyWidget.log('Items array empty. Full keys: ' + JSON.stringify(Object.keys(data)));
                         return;
                     }
 
+                    MyWidget.log(items.length + ' released items');
+
                     var html = '<table style="width:100%;border-collapse:collapse;">' +
-                        '<tr style="background:#f5f5f5;text-align:left;">' +
-                        '<th style="padding:8px;border-bottom:2px solid #ddd;">Name</th>' +
-                        '<th style="padding:8px;border-bottom:2px solid #ddd;">Type</th>' +
-                        '<th style="padding:8px;border-bottom:2px solid #ddd;">State</th>' +
+                        '<tr style="background:#f0f4f8;text-align:left;">' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Name</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Title</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Revision</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Owner</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Modified</th>' +
                         '</tr>';
 
                     for (var i = 0; i < items.length; i++) {
                         var item = items[i];
-                        var name = item.name || item.title || item.dataelements && item.dataelements.title || '—';
-                        var type = item.type || item.resourceType || '—';
-                        var state = item.current || item.state || item.dataelements && item.dataelements.current || '—';
-                        html += '<tr style="border-bottom:1px solid #eee;">' +
-                            '<td style="padding:6px 8px;">' + name + '</td>' +
-                            '<td style="padding:6px 8px;">' + type + '</td>' +
-                            '<td style="padding:6px 8px;">' + state + '</td>' +
+                        var bg = i % 2 === 0 ? '#fff' : '#f9fafb';
+                        html += '<tr style="background:' + bg + ';border-bottom:1px solid #eee;">' +
+                            '<td style="padding:8px 12px;">' + (item.name || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.title || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.revision || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.owner || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.modified || '—') + '</td>' +
                             '</tr>';
                     }
                     html += '</table>';
                     el.innerHTML = html;
-                    MyWidget.log('Displayed ' + items.length + ' items');
                 }
             };
             widget.addEvent('onLoad', MyWidget.onLoad);
