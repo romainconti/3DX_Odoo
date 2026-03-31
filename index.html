@@ -37,6 +37,9 @@
                                     MyWidget.log('CompassServices error: ' + JSON.stringify(err));
                                 }
                             });
+                        },
+                        function (err) {
+                            MyWidget.log('require FAILED: ' + err.requireType + ' / ' + err.requireModules);
                         }
                     );
                 },
