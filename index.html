@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v9',
+                version: 'v10',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -92,49 +92,68 @@
                         type: 'json',
                         headers: headers,
                         onComplete: function (data) {
-                            MyWidget.log('Person data: ' + JSON.stringify(data).substring(0, 500));
+                            MyWidget.log('Person: ' + JSON.stringify(data).substring(0, 500));
                             var secCtx = '';
                             try {
-                                var creds = data.preferredcredentials || (data.member && data.member[0] && data.member[0].preferredcredentials);
-                                if (creds) {
-                                    var role = creds.role && creds.role.name ? creds.role.name : '';
-                                    var org = creds.organization && creds.organization.name ? creds.organization.name : '';
-                                    var cs = creds.collabspace && creds.collabspace.name ? creds.collabspace.name : '';
-                                    secCtx = role + '.' + org + '.' + cs;
+                                var pref = data.preferredcredentials;
+                                if (pref && pref.role) {
+                                    secCtx = pref.role.name + '.' + pref.organization.name + '.' + pref.collabspace.name;
+                                } else if (data.collabspaces && data.collabspaces.length > 0) {
+                                    var cs = data.collabspaces[0];
+                                    var couple = cs.couples[0];
+                                    secCtx = couple.role.name + '.' + couple.organization.name + '.' + cs.name;
                                 }
-                            } catch(e) {}
-                            if (!secCtx) secCtx = 'VPLMProjectLeader.FLYABILITY.Default';
+                            } catch(e) { MyWidget.log('Parse error: ' + e.message); }
+                            if (!secCtx) secCtx = 'VPLMProjectLeader.Company Name.Common Space';
                             MyWidget.log('SecurityContext: ' + secCtx);
-                            MyWidget.doSearch(WAFData, spaceUrl, csrf, secCtx);
+                            MyWidget.tryAPIs(WAFData, spaceUrl, csrf, secCtx);
                         },
                         onFailure: function (err) {
                             MyWidget.log('Person API error: ' + JSON.stringify(err));
-                            MyWidget.doSearch(WAFData, spaceUrl, csrf, 'VPLMProjectLeader.FLYABILITY.Default');
+                            MyWidget.tryAPIs(WAFData, spaceUrl, csrf, 'VPLMProjectLeader.Company Name.Common Space');
                         }
                     });
                 },
 
-                doSearch: function (WAFData, spaceUrl, csrf, secCtx) {
-                    var searchUrl = spaceUrl + '/resources/v1/application/search?query=*&nresults=10';
-                    MyWidget.log('Search: ' + searchUrl);
-
+                tryAPIs: function (WAFData, spaceUrl, csrf, secCtx) {
                     var headers = {
                         'SecurityContext': secCtx,
                         'Accept': 'application/json'
                     };
                     if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
 
-                    WAFData.authenticatedRequest(searchUrl, {
+                    /* Try multiple endpoints sequentially */
+                    var endpoints = [
+                        '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=10',
+                        '/search/resources/v1/search?query=*&nresults=10',
+                        '/resources/v1/application/search?query=*&nresults=10',
+                        '/resources/v1/modeler/dslc/search?$searchStr=*&$top=10'
+                    ];
+                    MyWidget.log('Trying ' + endpoints.length + ' endpoints...');
+                    MyWidget.tryNextEndpoint(WAFData, spaceUrl, csrf, headers, endpoints, 0);
+                },
+
+                tryNextEndpoint: function (WAFData, spaceUrl, csrf, headers, endpoints, idx) {
+                    if (idx >= endpoints.length) {
+                        MyWidget.log('All endpoints failed');
+                        document.getElementById('results').innerHTML = '<p style="color:#e74c3c;">Could not reach search API.</p>';
+                        return;
+                    }
+                    var url = spaceUrl + endpoints[idx];
+                    MyWidget.log('Try #' + (idx + 1) + ': ' + endpoints[idx]);
+
+                    WAFData.authenticatedRequest(url, {
                         method: 'GET',
                         type: 'json',
                         headers: headers,
                         onComplete: function (data) {
-                            MyWidget.log('Search keys: ' + Object.keys(data).join(', '));
-                            MyWidget.log('Search raw (500): ' + JSON.stringify(data).substring(0, 500));
+                            MyWidget.log('SUCCESS on #' + (idx + 1) + ': ' + Object.keys(data).join(', '));
+                            MyWidget.log('Data (500): ' + JSON.stringify(data).substring(0, 500));
                             MyWidget.displayResults(data);
                         },
                         onFailure: function (err) {
-                            MyWidget.log('Search error: status=' + (err && err.status ? err.status : '?') + ' body=' + JSON.stringify(err).substring(0, 300));
+                            MyWidget.log('Failed #' + (idx + 1) + ': ' + JSON.stringify(err).substring(0, 100));
+                            MyWidget.tryNextEndpoint(WAFData, spaceUrl, csrf, headers, endpoints, idx + 1);
                         }
                     });
                 },
