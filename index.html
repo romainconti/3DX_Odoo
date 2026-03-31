@@ -2,8 +2,8 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:widget="http://www.netvibes.com/ns/">
     <head>
-        <title>Hello Widget</title>
-        <meta name="description" content="Minimal Hello Widget" />
+        <title>Released Items</title>
+        <meta name="description" content="Show released items in workspace" />
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
@@ -12,27 +12,90 @@
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
                 },
                 onLoad: function () {
-                    widget.body.innerHTML = '<div style="padding:20px;font-family:monospace;font-size:14px;"><p style="font-size:20px;color:#333;">Loading user...</p><div id="dbg" style="color:#888;margin-top:10px;"></div></div>';
+                    widget.body.innerHTML =
+                        '<div style="padding:16px;font-family:Arial,sans-serif;">' +
+                            '<h2 style="margin:0 0 12px;font-size:18px;color:#333;">Released Items</h2>' +
+                            '<div id="results" style="font-size:14px;color:#333;"></div>' +
+                            '<div id="dbg" style="color:#999;font-size:11px;margin-top:16px;font-family:monospace;"></div>' +
+                        '</div>';
+
                     MyWidget.log('onLoad fired');
-                    try {
-                        require(['DS/WAFData/WAFData'], function (WAFData) {
-                            MyWidget.log('WAFData loaded');
-                            WAFData.authenticatedRequest('/api/users/current', {
-                                method: 'GET',
-                                type: 'json',
-                                onComplete: function (data) {
-                                    MyWidget.log('API response: ' + JSON.stringify(data).substring(0, 200));
-                                    var name = data.first_name || data.firstName || data.login || 'User';
-                                    widget.body.innerHTML = '<p style="padding:20px;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello ' + name + '!</p>';
+
+                    require(['DS/WAFData/WAFData', 'DS/i3DXCompassPlatformServices/CompassServices'],
+                        function (WAFData, CompassServices) {
+                            MyWidget.log('Modules loaded');
+                            MyWidget.log('platformId: ' + widget.getValue('x3dPlatformId'));
+
+                            CompassServices.getServiceUrl({
+                                serviceName: '3DSpace',
+                                platformId: widget.getValue('x3dPlatformId'),
+                                onComplete: function (url) {
+                                    MyWidget.log('3DSpace URL: ' + url);
+                                    MyWidget.fetchReleased(WAFData, url);
                                 },
                                 onFailure: function (err) {
-                                    MyWidget.log('API error: ' + (err && err.message ? err.message : JSON.stringify(err)));
+                                    MyWidget.log('CompassServices error: ' + JSON.stringify(err));
                                 }
                             });
-                        });
-                    } catch (e) {
-                        MyWidget.log('require error: ' + e.message);
+                        }
+                    );
+                },
+
+                fetchReleased: function (WAFData, spaceUrl) {
+                    var searchUrl = spaceUrl + '/resources/v1/application/search?query=current:Released&nresults=20';
+                    MyWidget.log('Calling: ' + searchUrl);
+
+                    WAFData.authenticatedRequest(searchUrl, {
+                        method: 'GET',
+                        type: 'json',
+                        onComplete: function (data) {
+                            MyWidget.log('Response keys: ' + Object.keys(data).join(', '));
+                            MyWidget.log('Raw (500 chars): ' + JSON.stringify(data).substring(0, 500));
+                            MyWidget.displayResults(data);
+                        },
+                        onFailure: function (err, info) {
+                            MyWidget.log('Search error: ' + JSON.stringify(err));
+                            if (info) MyWidget.log('Info: ' + JSON.stringify(info));
+                        }
+                    });
+                },
+
+                displayResults: function (data) {
+                    var el = document.getElementById('results');
+                    if (!el) return;
+
+                    var items = data.member || data.results || data.data || [];
+                    if (!items.length && data.member === undefined) {
+                        items = Array.isArray(data) ? data : [];
                     }
+
+                    if (items.length === 0) {
+                        el.innerHTML = '<p style="color:#888;">No released items found.</p>';
+                        MyWidget.log('Items array empty. Full keys: ' + JSON.stringify(Object.keys(data)));
+                        return;
+                    }
+
+                    var html = '<table style="width:100%;border-collapse:collapse;">' +
+                        '<tr style="background:#f5f5f5;text-align:left;">' +
+                        '<th style="padding:8px;border-bottom:2px solid #ddd;">Name</th>' +
+                        '<th style="padding:8px;border-bottom:2px solid #ddd;">Type</th>' +
+                        '<th style="padding:8px;border-bottom:2px solid #ddd;">State</th>' +
+                        '</tr>';
+
+                    for (var i = 0; i < items.length; i++) {
+                        var item = items[i];
+                        var name = item.name || item.title || item.dataelements && item.dataelements.title || '—';
+                        var type = item.type || item.resourceType || '—';
+                        var state = item.current || item.state || item.dataelements && item.dataelements.current || '—';
+                        html += '<tr style="border-bottom:1px solid #eee;">' +
+                            '<td style="padding:6px 8px;">' + name + '</td>' +
+                            '<td style="padding:6px 8px;">' + type + '</td>' +
+                            '<td style="padding:6px 8px;">' + state + '</td>' +
+                            '</tr>';
+                    }
+                    html += '</table>';
+                    el.innerHTML = html;
+                    MyWidget.log('Displayed ' + items.length + ' items');
                 }
             };
             widget.addEvent('onLoad', MyWidget.onLoad);
