@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v8',
+                version: 'v9',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -62,7 +62,6 @@
                 },
 
                 fetchReleased: function (WAFData, spaceUrl) {
-                    /* First get the user's security context */
                     var csrfUrl = spaceUrl + '/resources/v1/application/CSRF';
                     MyWidget.log('Getting CSRF...');
 
@@ -70,23 +69,57 @@
                         method: 'GET',
                         type: 'json',
                         onComplete: function (csrfData) {
-                            MyWidget.log('CSRF: ' + JSON.stringify(csrfData).substring(0, 100));
                             var csrf = csrfData && csrfData.csrf ? csrfData.csrf.value : '';
-                            MyWidget.doSearch(WAFData, spaceUrl, csrf);
+                            MyWidget.log('CSRF OK');
+                            MyWidget.getSecurityContexts(WAFData, spaceUrl, csrf);
                         },
                         onFailure: function () {
-                            MyWidget.log('CSRF failed, trying without');
-                            MyWidget.doSearch(WAFData, spaceUrl, '');
+                            MyWidget.log('CSRF failed');
+                            MyWidget.getSecurityContexts(WAFData, spaceUrl, '');
                         }
                     });
                 },
 
-                doSearch: function (WAFData, spaceUrl, csrf) {
-                    var searchUrl = spaceUrl + '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$mask=dsmveng:EngItemMask.Details&$top=20&$skip=0';
-                    MyWidget.log('Calling: ' + searchUrl);
+                getSecurityContexts: function (WAFData, spaceUrl, csrf) {
+                    var url = spaceUrl + '/resources/modeler/pno/person?current=true&select=preferredcredentials&select=collabspaces';
+                    MyWidget.log('Getting security contexts...');
+
+                    var headers = { 'Accept': 'application/json' };
+                    if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
+
+                    WAFData.authenticatedRequest(url, {
+                        method: 'GET',
+                        type: 'json',
+                        headers: headers,
+                        onComplete: function (data) {
+                            MyWidget.log('Person data: ' + JSON.stringify(data).substring(0, 500));
+                            var secCtx = '';
+                            try {
+                                var creds = data.preferredcredentials || (data.member && data.member[0] && data.member[0].preferredcredentials);
+                                if (creds) {
+                                    var role = creds.role && creds.role.name ? creds.role.name : '';
+                                    var org = creds.organization && creds.organization.name ? creds.organization.name : '';
+                                    var cs = creds.collabspace && creds.collabspace.name ? creds.collabspace.name : '';
+                                    secCtx = role + '.' + org + '.' + cs;
+                                }
+                            } catch(e) {}
+                            if (!secCtx) secCtx = 'VPLMProjectLeader.FLYABILITY.Default';
+                            MyWidget.log('SecurityContext: ' + secCtx);
+                            MyWidget.doSearch(WAFData, spaceUrl, csrf, secCtx);
+                        },
+                        onFailure: function (err) {
+                            MyWidget.log('Person API error: ' + JSON.stringify(err));
+                            MyWidget.doSearch(WAFData, spaceUrl, csrf, 'VPLMProjectLeader.FLYABILITY.Default');
+                        }
+                    });
+                },
+
+                doSearch: function (WAFData, spaceUrl, csrf, secCtx) {
+                    var searchUrl = spaceUrl + '/resources/v1/application/search?query=*&nresults=10';
+                    MyWidget.log('Search: ' + searchUrl);
 
                     var headers = {
-                        'SecurityContext': 'VPLMProjectLeader.Company Name.Default',
+                        'SecurityContext': secCtx,
                         'Accept': 'application/json'
                     };
                     if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
@@ -96,47 +129,12 @@
                         type: 'json',
                         headers: headers,
                         onComplete: function (data) {
-                            MyWidget.log('Response keys: ' + Object.keys(data).join(', '));
-                            MyWidget.log('Raw (500 chars): ' + JSON.stringify(data).substring(0, 500));
-                            MyWidget.displayResults(data);
-                        },
-                        onFailure: function (err, respHeaders, xhr) {
-                            MyWidget.log('Search error: ' + JSON.stringify(err));
-                            MyWidget.log('Trying fallback search...');
-                            MyWidget.doFallbackSearch(WAFData, spaceUrl, csrf);
-                        }
-                    });
-                },
-
-                doFallbackSearch: function (WAFData, spaceUrl, csrf) {
-                    var searchUrl = spaceUrl + '/resources/v1/application/search';
-                    var body = JSON.stringify({
-                        with_indexing: true,
-                        select_predicate: ['ds6w:label', 'ds6w:type', 'ds6w:status'],
-                        query: 'flattenedtaxonomies:"current/Released"',
-                        nresults: 20
-                    });
-                    MyWidget.log('Fallback POST: ' + searchUrl);
-
-                    var headers = {
-                        'SecurityContext': 'VPLMProjectLeader.Company Name.Default',
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    };
-                    if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
-
-                    WAFData.authenticatedRequest(searchUrl, {
-                        method: 'POST',
-                        type: 'json',
-                        headers: headers,
-                        data: body,
-                        onComplete: function (data) {
-                            MyWidget.log('Fallback keys: ' + Object.keys(data).join(', '));
-                            MyWidget.log('Fallback raw (500 chars): ' + JSON.stringify(data).substring(0, 500));
+                            MyWidget.log('Search keys: ' + Object.keys(data).join(', '));
+                            MyWidget.log('Search raw (500): ' + JSON.stringify(data).substring(0, 500));
                             MyWidget.displayResults(data);
                         },
                         onFailure: function (err) {
-                            MyWidget.log('Fallback error: ' + JSON.stringify(err));
+                            MyWidget.log('Search error: status=' + (err && err.status ? err.status : '?') + ' body=' + JSON.stringify(err).substring(0, 300));
                         }
                     });
                 },
