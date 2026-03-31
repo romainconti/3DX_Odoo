@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v13',
+                version: 'v14',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -143,7 +143,17 @@
                 },
 
                 searchType: function (endpoint, headers, ctxName) {
-                    var url = MyWidget.spaceUrl + endpoint;
+                    var space = ctxName.split('.')[2] || '';
+                    var typeName = endpoint.split('?')[0].split('/').pop();
+                    MyWidget.fetchPage(endpoint, headers, space, typeName, 0, 0);
+                },
+
+                fetchPage: function (endpoint, headers, space, typeName, skip, pageReleased) {
+                    var pageSize = 100;
+                    var baseUrl = endpoint.replace(/\$top=\d+/, '$top=' + pageSize);
+                    if (skip > 0) baseUrl += '&$skip=' + skip;
+                    var url = MyWidget.spaceUrl + baseUrl;
+
                     MyWidget.WAFData.authenticatedRequest(url, {
                         method: 'GET',
                         type: 'json',
@@ -154,19 +164,29 @@
                             for (var i = 0; i < items.length; i++) {
                                 if (items[i].state === 'RELEASED' && !MyWidget.seenIds[items[i].id]) {
                                     MyWidget.seenIds[items[i].id] = true;
-                                    items[i].collabspace = ctxName.split('.')[2] || '';
+                                    items[i].collabspace = space;
                                     MyWidget.allItems.push(items[i]);
                                     added++;
                                 }
                             }
-                            MyWidget.log(ctxName.split('.')[2] + ' ' + endpoint.split('?')[0].split('/').pop() + ': ' + items.length + ' total, ' + added + ' released');
-                            MyWidget.pendingSearches--;
-                            if (MyWidget.pendingSearches <= 0) {
-                                MyWidget.log('Total released: ' + MyWidget.allItems.length);
-                                MyWidget.displayResults(MyWidget.allItems);
+                            pageReleased += added;
+                            var total = data.totalItems || 0;
+                            var fetched = skip + items.length;
+
+                            if (items.length === pageSize && fetched < total) {
+                                /* More pages available */
+                                MyWidget.fetchPage(endpoint, headers, space, typeName, fetched, pageReleased);
+                            } else {
+                                MyWidget.log(space + ' ' + typeName + ': ' + fetched + '/' + total + ' scanned, ' + pageReleased + ' released');
+                                MyWidget.pendingSearches--;
+                                if (MyWidget.pendingSearches <= 0) {
+                                    MyWidget.log('Total released: ' + MyWidget.allItems.length);
+                                    MyWidget.displayResults(MyWidget.allItems);
+                                }
                             }
                         },
                         onFailure: function () {
+                            MyWidget.log(space + ' ' + typeName + ': failed');
                             MyWidget.pendingSearches--;
                             if (MyWidget.pendingSearches <= 0) {
                                 MyWidget.log('Total released: ' + MyWidget.allItems.length);
