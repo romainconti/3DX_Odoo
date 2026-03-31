@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v14',
+                version: 'v15',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -173,8 +173,8 @@
                             var total = data.totalItems || 0;
                             var fetched = skip + items.length;
 
-                            if (items.length === pageSize && fetched < total) {
-                                /* More pages available */
+                            if (items.length === pageSize) {
+                                /* Full page returned — always try next page */
                                 MyWidget.fetchPage(endpoint, headers, space, typeName, fetched, pageReleased);
                             } else {
                                 MyWidget.log(space + ' ' + typeName + ': ' + fetched + '/' + total + ' scanned, ' + pageReleased + ' released');
@@ -217,8 +217,9 @@
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Name</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Title</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Type</th>' +
-                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Revision</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Rev</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Owner</th>' +
+                        '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Space</th>' +
                         '<th style="padding:10px 12px;border-bottom:2px solid #ccc;font-weight:600;">Modified</th>' +
                         '</tr>';
 
@@ -231,6 +232,7 @@
                             '<td style="padding:8px 12px;">' + (item.type || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.revision || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.owner || '—') + '</td>' +
+                            '<td style="padding:8px 12px;">' + (item.collabspace || '—') + '</td>' +
                             '<td style="padding:8px 12px;">' + (item.modified || '—') + '</td>' +
                             '</tr>';
                     }
