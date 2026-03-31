@@ -5,25 +5,38 @@
         <title>Hello Widget</title>
         <meta name="description" content="Minimal Hello Widget" />
         <script type="text/javascript">
+        //<![CDATA[
             var MyWidget = {
+                log: function (msg) {
+                    var el = document.getElementById('dbg');
+                    if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
+                },
                 onLoad: function () {
-                    widget.body.innerHTML = '<p style="padding:20px;font-family:Arial,sans-serif;font-size:20px;color:#333;">Loading user...</p>';
-                    require(['DS/WAFData/WAFData'], function (WAFData) {
-                        WAFData.authenticatedRequest('/api/users/current', {
-                            method: 'GET',
-                            type: 'json',
-                            onComplete: function (data) {
-                                var name = data.first_name || data.firstName || data.login || 'User';
-                                widget.body.innerHTML = '<p style="padding:20px;font-family:Arial,sans-serif;font-size:20px;color:#333;">Hello ' + name + '!</p>';
-                            },
-                            onFailure: function () {
-                                widget.body.innerHTML = '<p style="padding:20px;font-family:Arial,sans-serif;font-size:20px;color:#e74c3c;">Hello! (user API unavailable)</p>';
-                            }
+                    widget.body.innerHTML = '<div style="padding:20px;font-family:monospace;font-size:14px;"><p style="font-size:20px;color:#333;">Loading user...</p><div id="dbg" style="color:#888;margin-top:10px;"></div></div>';
+                    MyWidget.log('onLoad fired');
+                    try {
+                        require(['DS/WAFData/WAFData'], function (WAFData) {
+                            MyWidget.log('WAFData loaded');
+                            WAFData.authenticatedRequest('/api/users/current', {
+                                method: 'GET',
+                                type: 'json',
+                                onComplete: function (data) {
+                                    MyWidget.log('API response: ' + JSON.stringify(data).substring(0, 200));
+                                    var name = data.first_name || data.firstName || data.login || 'User';
+                                    widget.body.innerHTML = '<p style="padding:20px;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello ' + name + '!</p>';
+                                },
+                                onFailure: function (err) {
+                                    MyWidget.log('API error: ' + (err && err.message ? err.message : JSON.stringify(err)));
+                                }
+                            });
                         });
-                    });
+                    } catch (e) {
+                        MyWidget.log('require error: ' + e.message);
+                    }
                 }
             };
             widget.addEvent('onLoad', MyWidget.onLoad);
+        //]]>
         </script>
     </head>
     <body>
