@@ -21,20 +21,36 @@
 
                     MyWidget.log('onLoad fired');
 
-                    require(['DS/WAFData/WAFData', 'DS/i3DXCompassPlatformServices/CompassServices'],
-                        function (WAFData, CompassServices) {
-                            MyWidget.log('Modules loaded');
-                            MyWidget.log('platformId: ' + widget.getValue('x3dPlatformId'));
+                    require(['DS/WAFData/WAFData'],
+                        function (WAFData) {
+                            MyWidget.log('WAFData loaded');
 
-                            CompassServices.getServiceUrl({
-                                serviceName: '3DSpace',
-                                platformId: widget.getValue('x3dPlatformId'),
-                                onComplete: function (url) {
-                                    MyWidget.log('3DSpace URL: ' + url);
+                            var spaceUrl = widget.getValue('x3dPlatformId');
+                            MyWidget.log('x3dPlatformId: ' + spaceUrl);
+
+                            /* Try to discover 3DSpace URL from the platform services endpoint */
+                            WAFData.authenticatedRequest('/api/v1/platform/service/instance?platformId=' + spaceUrl + '&serviceId=3DSpace', {
+                                method: 'GET',
+                                type: 'json',
+                                onComplete: function (data) {
+                                    MyWidget.log('Service discovery: ' + JSON.stringify(data).substring(0, 300));
+                                    var url = '';
+                                    if (data && data.platformServices) {
+                                        for (var i = 0; i < data.platformServices.length; i++) {
+                                            if (data.platformServices[i].name === '3DSpace') {
+                                                url = data.platformServices[i].url;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (!url && data && data.url) url = data.url;
+                                    if (!url) url = 'https://r1132102984977-eu1-space.3dexperience.3ds.com/enovia';
+                                    MyWidget.log('Using 3DSpace: ' + url);
                                     MyWidget.fetchReleased(WAFData, url);
                                 },
-                                onFailure: function (err) {
-                                    MyWidget.log('CompassServices error: ' + JSON.stringify(err));
+                                onFailure: function () {
+                                    MyWidget.log('Service discovery failed, using fallback URL');
+                                    MyWidget.fetchReleased(WAFData, 'https://r1132102984977-eu1-space.3dexperience.3ds.com/enovia');
                                 }
                             });
                         },
