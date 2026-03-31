@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v12',
+                version: 'v13',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -82,7 +82,7 @@
 
                 getSecurityContexts: function (WAFData, spaceUrl, csrf) {
                     var url = spaceUrl + '/resources/modeler/pno/person?current=true&select=preferredcredentials&select=collabspaces';
-                    MyWidget.log('Getting security contexts...');
+                    MyWidget.log('Getting collabspaces...');
 
                     var headers = { 'Accept': 'application/json' };
                     if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
@@ -92,69 +92,74 @@
                         type: 'json',
                         headers: headers,
                         onComplete: function (data) {
-                            MyWidget.log('Person: ' + JSON.stringify(data).substring(0, 500));
-                            var secCtx = '';
+                            /* Build list of all security contexts (one per collabspace) */
+                            var contexts = [];
                             try {
-                                var pref = data.preferredcredentials;
-                                if (pref && pref.role) {
-                                    secCtx = pref.role.name + '.' + pref.organization.name + '.' + pref.collabspace.name;
-                                } else if (data.collabspaces && data.collabspaces.length > 0) {
-                                    var cs = data.collabspaces[0];
-                                    var couple = cs.couples[0];
-                                    secCtx = couple.role.name + '.' + couple.organization.name + '.' + cs.name;
+                                var spaces = data.collabspaces || [];
+                                for (var i = 0; i < spaces.length; i++) {
+                                    var cs = spaces[i];
+                                    if (cs.couples && cs.couples.length > 0) {
+                                        var c = cs.couples[0];
+                                        contexts.push(c.role.name + '.' + c.organization.name + '.' + cs.name);
+                                    }
                                 }
                             } catch(e) { MyWidget.log('Parse error: ' + e.message); }
-                            if (!secCtx) secCtx = 'VPLMProjectLeader.Company Name.Common Space';
-                            MyWidget.log('SecurityContext: ' + secCtx);
-                            MyWidget.tryAPIs(WAFData, spaceUrl, csrf, secCtx);
+                            if (contexts.length === 0) contexts.push('VPLMProjectLeader.Company Name.Common Space');
+                            MyWidget.log(contexts.length + ' collabspaces: ' + contexts.join(' | '));
+                            MyWidget.searchAllSpaces(WAFData, spaceUrl, csrf, contexts);
                         },
                         onFailure: function (err) {
-                            MyWidget.log('Person API error: ' + JSON.stringify(err));
-                            MyWidget.tryAPIs(WAFData, spaceUrl, csrf, 'VPLMProjectLeader.Company Name.Common Space');
+                            MyWidget.log('Person API error');
+                            MyWidget.searchAllSpaces(WAFData, spaceUrl, csrf, ['VPLMProjectLeader.Company Name.Common Space']);
                         }
                     });
                 },
 
-                tryAPIs: function (WAFData, spaceUrl, csrf, secCtx) {
-                    var headers = {
-                        'SecurityContext': secCtx,
-                        'Accept': 'application/json'
-                    };
-                    if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
-
-                    MyWidget.searchHeaders = headers;
-                    MyWidget.spaceUrl = spaceUrl;
+                searchAllSpaces: function (WAFData, spaceUrl, csrf, contexts) {
                     MyWidget.WAFData = WAFData;
+                    MyWidget.spaceUrl = spaceUrl;
                     MyWidget.allItems = [];
+                    MyWidget.seenIds = {};
 
-                    /* Search multiple type endpoints in parallel, collect all results */
+                    /* For each collabspace, search EngItem + Drawing */
                     var typeEndpoints = [
                         '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$top=100',
-                        '/resources/v1/modeler/dseng/dseng:Drawing/search?$searchStr=*&$top=100',
-                        '/resources/v1/modeler/dsxcad/dsxcad:Representation/search?$searchStr=*&$top=100'
+                        '/resources/v1/modeler/dseng/dseng:Drawing/search?$searchStr=*&$top=100'
                     ];
-                    MyWidget.pendingSearches = typeEndpoints.length;
-                    MyWidget.log('Searching ' + typeEndpoints.length + ' type endpoints...');
 
-                    for (var i = 0; i < typeEndpoints.length; i++) {
-                        MyWidget.searchType(typeEndpoints[i], i);
+                    MyWidget.pendingSearches = contexts.length * typeEndpoints.length;
+                    MyWidget.log('Searching: ' + contexts.length + ' spaces x ' + typeEndpoints.length + ' types = ' + MyWidget.pendingSearches + ' queries');
+
+                    for (var c = 0; c < contexts.length; c++) {
+                        var headers = {
+                            'SecurityContext': contexts[c],
+                            'Accept': 'application/json'
+                        };
+                        if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
+                        for (var t = 0; t < typeEndpoints.length; t++) {
+                            MyWidget.searchType(typeEndpoints[t], headers, contexts[c]);
+                        }
                     }
                 },
 
-                searchType: function (endpoint, idx) {
+                searchType: function (endpoint, headers, ctxName) {
                     var url = MyWidget.spaceUrl + endpoint;
                     MyWidget.WAFData.authenticatedRequest(url, {
                         method: 'GET',
                         type: 'json',
-                        headers: MyWidget.searchHeaders,
+                        headers: headers,
                         onComplete: function (data) {
                             var items = data.member || [];
-                            MyWidget.log('Endpoint #' + (idx + 1) + ': ' + items.length + ' items');
+                            var added = 0;
                             for (var i = 0; i < items.length; i++) {
-                                if (items[i].state === 'RELEASED') {
+                                if (items[i].state === 'RELEASED' && !MyWidget.seenIds[items[i].id]) {
+                                    MyWidget.seenIds[items[i].id] = true;
+                                    items[i].collabspace = ctxName.split('.')[2] || '';
                                     MyWidget.allItems.push(items[i]);
+                                    added++;
                                 }
                             }
+                            MyWidget.log(ctxName.split('.')[2] + ' ' + endpoint.split('?')[0].split('/').pop() + ': ' + items.length + ' total, ' + added + ' released');
                             MyWidget.pendingSearches--;
                             if (MyWidget.pendingSearches <= 0) {
                                 MyWidget.log('Total released: ' + MyWidget.allItems.length);
@@ -162,7 +167,6 @@
                             }
                         },
                         onFailure: function () {
-                            MyWidget.log('Endpoint #' + (idx + 1) + ' failed');
                             MyWidget.pendingSearches--;
                             if (MyWidget.pendingSearches <= 0) {
                                 MyWidget.log('Total released: ' + MyWidget.allItems.length);
