@@ -7,7 +7,7 @@
         <script type="text/javascript">
         //<![CDATA[
             var MyWidget = {
-                version: 'v7',
+                version: 'v8',
                 log: function (msg) {
                     var el = document.getElementById('dbg');
                     if (el) el.innerHTML = el.innerHTML + msg + '<br/>';
@@ -62,20 +62,81 @@
                 },
 
                 fetchReleased: function (WAFData, spaceUrl) {
-                    var searchUrl = spaceUrl + '/resources/v1/application/search?query=current:Released&nresults=20';
+                    /* First get the user's security context */
+                    var csrfUrl = spaceUrl + '/resources/v1/application/CSRF';
+                    MyWidget.log('Getting CSRF...');
+
+                    WAFData.authenticatedRequest(csrfUrl, {
+                        method: 'GET',
+                        type: 'json',
+                        onComplete: function (csrfData) {
+                            MyWidget.log('CSRF: ' + JSON.stringify(csrfData).substring(0, 100));
+                            var csrf = csrfData && csrfData.csrf ? csrfData.csrf.value : '';
+                            MyWidget.doSearch(WAFData, spaceUrl, csrf);
+                        },
+                        onFailure: function () {
+                            MyWidget.log('CSRF failed, trying without');
+                            MyWidget.doSearch(WAFData, spaceUrl, '');
+                        }
+                    });
+                },
+
+                doSearch: function (WAFData, spaceUrl, csrf) {
+                    var searchUrl = spaceUrl + '/resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=*&$mask=dsmveng:EngItemMask.Details&$top=20&$skip=0';
                     MyWidget.log('Calling: ' + searchUrl);
+
+                    var headers = {
+                        'SecurityContext': 'VPLMProjectLeader.Company Name.Default',
+                        'Accept': 'application/json'
+                    };
+                    if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
 
                     WAFData.authenticatedRequest(searchUrl, {
                         method: 'GET',
                         type: 'json',
+                        headers: headers,
                         onComplete: function (data) {
                             MyWidget.log('Response keys: ' + Object.keys(data).join(', '));
                             MyWidget.log('Raw (500 chars): ' + JSON.stringify(data).substring(0, 500));
                             MyWidget.displayResults(data);
                         },
-                        onFailure: function (err, info) {
+                        onFailure: function (err, respHeaders, xhr) {
                             MyWidget.log('Search error: ' + JSON.stringify(err));
-                            if (info) MyWidget.log('Info: ' + JSON.stringify(info));
+                            MyWidget.log('Trying fallback search...');
+                            MyWidget.doFallbackSearch(WAFData, spaceUrl, csrf);
+                        }
+                    });
+                },
+
+                doFallbackSearch: function (WAFData, spaceUrl, csrf) {
+                    var searchUrl = spaceUrl + '/resources/v1/application/search';
+                    var body = JSON.stringify({
+                        with_indexing: true,
+                        select_predicate: ['ds6w:label', 'ds6w:type', 'ds6w:status'],
+                        query: 'flattenedtaxonomies:"current/Released"',
+                        nresults: 20
+                    });
+                    MyWidget.log('Fallback POST: ' + searchUrl);
+
+                    var headers = {
+                        'SecurityContext': 'VPLMProjectLeader.Company Name.Default',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    };
+                    if (csrf) headers['ENO_CSRF_TOKEN'] = csrf;
+
+                    WAFData.authenticatedRequest(searchUrl, {
+                        method: 'POST',
+                        type: 'json',
+                        headers: headers,
+                        data: body,
+                        onComplete: function (data) {
+                            MyWidget.log('Fallback keys: ' + Object.keys(data).join(', '));
+                            MyWidget.log('Fallback raw (500 chars): ' + JSON.stringify(data).substring(0, 500));
+                            MyWidget.displayResults(data);
+                        },
+                        onFailure: function (err) {
+                            MyWidget.log('Fallback error: ' + JSON.stringify(err));
                         }
                     });
                 },
