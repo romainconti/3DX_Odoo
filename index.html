@@ -1,46 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:widget="http://www.netvibes.com/ns/">
-<head>
-<title>Hello Widget</title>
-<meta name="apiVersion" content="1.0" />
-<meta name="description" content="Minimal Hello Widget" />
-<script type="text/javascript">
-(function () {
-    var content = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello!</div>';
-
-    function inject() {
-        /* Method A: UWA widget.body.innerHTML */
-        if (typeof widget !== 'undefined' && widget.body) {
-            try { widget.body.innerHTML = content; return; } catch(e) {}
-        }
-        /* Method B: find the widget body container in DOM */
-        var bodies = document.querySelectorAll('.widgetBody, .moduleContent, [id*="widget_body"]');
-        if (bodies.length > 0) {
-            bodies[0].innerHTML = content;
-            return;
-        }
-        /* Method C: raw document.body */
-        if (document.body) {
-            document.body.innerHTML = content;
-            return;
-        }
-    }
-
-    /* Strategy 1: UWA onLoad event (if framework works) */
-    if (typeof widget !== 'undefined' && widget.addEvent) {
-        widget.addEvent('onLoad', inject);
-    }
-
-    /* Strategy 2: Timer-based retry (if UWA fails) */
-    var attempts = 0;
-    var timer = setInterval(function () {
-        attempts++;
-        inject();
-        if (attempts > 50) clearInterval(timer);
-    }, 200);
-})();
-</script>
-</head>
-<body>
-<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:Arial,sans-serif;font-size:24px;color:#333;">Hello!</div>
-</body>
+    <head>
+        <title>Hello Widget</title>
+        <meta name="description" content="Minimal Hello Widget" />
+        <script type="text/javascript">
+            var MyWidget = {
+                onLoad: function () {
+                    widget.body.innerHTML = '<h1 style="padding:20px;font-family:Arial,sans-serif;color:#333;">Hello!</h1>';
+                }
+            };
+            widget.addEvent('onLoad', MyWidget.onLoad);
+        </script>
+    </head>
+    <body>
+    </body>
 </html>
